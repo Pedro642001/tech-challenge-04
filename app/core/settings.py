@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api/v1"
     MODEL_DIR: str = "app/data"
     LOG_LEVEL: str = "INFO"
+    LOG_FILE_PATH: str | None = None
     ENABLE_PROMETHEUS_METRICS: bool = True
     DEFAULT_TICKER: str = "DIS"
     DEFAULT_START_DATE: str = "2018-01-01"

@@ -1,0 +1,37 @@
+groups:
+  - name: tech-challenge-api-recording-rules
+    rules:
+      - record: app:http_requests_rate_5m
+        expr: sum(rate(app_http_requests_total[5m]))
+      - record: app:http_error_rate_percent_5m
+        expr: 100 * (sum(rate(app_http_request_errors_total[5m])) / clamp_min(sum(rate(app_http_requests_total[5m])), 0.000001))
+      - record: app:http_latency_p95_5m
+        expr: histogram_quantile(0.95, sum(rate(app_http_request_duration_seconds_bucket[5m])) by (le))
+      - record: app:ml_training_duration_p95_30m
+        expr: histogram_quantile(0.95, sum(rate(app_ml_training_duration_seconds_bucket[30m])) by (le))
+      - record: app:ml_prediction_duration_p95_5m
+        expr: histogram_quantile(0.95, sum(rate(app_ml_prediction_duration_seconds_bucket[5m])) by (le))
+
+  - name: tech-challenge-api-alerts
+    rules:
+      - alert: HighHttpErrorRate
+        expr: app:http_error_rate_percent_5m > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP error rate above 5% for 5 minutes"
+      - alert: HighHttpLatencyP95
+        expr: app:http_latency_p95_5m > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP p95 latency above 1 second for 5 minutes"
+      - alert: MlTrainingFailuresDetected
+        expr: increase(app_ml_training_total{status="failed"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "At least one ML training failure was detected in the last 15 minutes"

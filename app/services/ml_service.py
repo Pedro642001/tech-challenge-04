@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
+import logging
 
 import joblib
 import numpy as np
@@ -9,10 +10,12 @@ from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error,
 from sklearn.preprocessing import MinMaxScaler
 
 from app.core.observability import (
+    mark_ml_prediction_started,
     mark_ml_prediction_finished,
     mark_ml_training_finished,
     mark_ml_training_started,
 )
+from app.core.logging import log_event
 from app.core.settings import settings
 from app.dtos.ml import (
     ModelMetricsDto,
@@ -25,6 +28,7 @@ from app.dtos.ml import (
 
 class MachineLearningService:
     def __init__(self):
+        self.logger = logging.getLogger("app.ml")
         self.data_dir = Path(settings.MODEL_DIR)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.model_path = self.data_dir / "lstm_stock_model.keras"
@@ -83,6 +87,17 @@ class MachineLearningService:
         mark_ml_training_started()
         training_started_at = perf_counter()
         training_succeeded = False
+        log_event(
+            logger=self.logger,
+            level="info",
+            event="ml_training_started",
+            ticker=payload.ticker,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+            lookback_window_size=payload.lookback_window_size,
+            training_epochs=payload.training_epochs,
+            samples_per_batch=payload.samples_per_batch,
+        )
         try:
             close_prices = self._download_close_series(
                 ticker=payload.ticker,
@@ -145,7 +160,27 @@ class MachineLearningService:
             joblib.dump(metadata, self.metadata_path)
 
             training_succeeded = True
+            log_event(
+                logger=self.logger,
+                level="info",
+                event="ml_training_succeeded",
+                ticker=payload.ticker,
+                mae=round(mae, 6),
+                rmse=round(rmse, 6),
+                mape=round(mape, 6),
+                validation_samples=int(len(expected_values)),
+            )
             return TrainingResultDto(**metadata)
+        except Exception as error:
+            log_event(
+                logger=self.logger,
+                level="error",
+                event="ml_training_failed",
+                ticker=payload.ticker,
+                error_type=type(error).__name__,
+                error_message=str(error),
+            )
+            raise
         finally:
             training_duration = perf_counter() - training_started_at
             mark_ml_training_finished(duration_seconds=training_duration, success=training_succeeded)
@@ -162,7 +197,15 @@ class MachineLearningService:
         return model, scaler, metadata
 
     def predict(self, payload: PredictionInputDto) -> PredictionOutputDto:
+        mark_ml_prediction_started()
+        prediction_started_at = perf_counter()
         prediction_succeeded = False
+        log_event(
+            logger=self.logger,
+            level="info",
+            event="ml_prediction_started",
+            input_window_size=len(payload.recent_closing_prices),
+        )
         try:
             model, scaler, metadata = self._load_artifacts()
             lookback_window_size = metadata.get("lookback_window_size", metadata.get("sequence_length"))
@@ -182,13 +225,34 @@ class MachineLearningService:
             predicted_close = float(scaler.inverse_transform(prediction_scaled)[0][0])
 
             prediction_succeeded = True
+            log_event(
+                logger=self.logger,
+                level="info",
+                event="ml_prediction_succeeded",
+                ticker=metadata["ticker"],
+                lookback_window_size=lookback_window_size,
+                predicted_close=round(predicted_close, 6),
+            )
             return PredictionOutputDto(
                 predicted_close=predicted_close,
                 ticker=metadata["ticker"],
                 lookback_window_size=lookback_window_size,
             )
+        except Exception as error:
+            log_event(
+                logger=self.logger,
+                level="error",
+                event="ml_prediction_failed",
+                error_type=type(error).__name__,
+                error_message=str(error),
+            )
+            raise
         finally:
-            mark_ml_prediction_finished(success=prediction_succeeded)
+            prediction_duration = perf_counter() - prediction_started_at
+            mark_ml_prediction_finished(
+                duration_seconds=prediction_duration,
+                success=prediction_succeeded,
+            )
 
     def get_latest_metrics(self) -> ModelMetricsDto:
         if not self.metadata_path.exists():

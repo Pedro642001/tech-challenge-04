@@ -6,9 +6,12 @@ services:
     container_name: tech-challenge-api
     environment:
       LOG_LEVEL: INFO
+      LOG_FILE_PATH: /var/log/tech-challenge/api.log
       ENABLE_PROMETHEUS_METRICS: "true"
     ports:
       - "8000:8000"
+    volumes:
+      - api_logs:/var/log/tech-challenge
     networks:
       - monitoring
 
@@ -17,10 +20,35 @@ services:
     container_name: tech-challenge-prometheus
     volumes:
       - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
     ports:
       - "9090:9090"
     depends_on:
       - api
+    networks:
+      - monitoring
+
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: tech-challenge-loki
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./ops/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: tech-challenge-promtail
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./ops/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - api_logs:/var/log/tech-challenge:ro
+    depends_on:
+      - loki
     networks:
       - monitoring
 
@@ -38,11 +66,14 @@ services:
       - "3000:3000"
     depends_on:
       - prometheus
+      - loki
     networks:
       - monitoring
 
 volumes:
   grafana_data:
+  loki_data:
+  api_logs:
 
 networks:
   monitoring:
