@@ -58,6 +58,13 @@ poetry run fastapi run app/main.py --reload
 - API: `http://localhost:8000`
 - Swagger: `http://localhost:8000/docs`
 
+### API em producao
+
+| Recurso | URL |
+|---|---|
+| Swagger (docs) | https://tech-challenge-04-kwby.onrender.com/docs |
+| Health Check | https://tech-challenge-04-kwby.onrender.com/api/v1/health/ |
+
 ## Execução com Docker Compose (API + Prometheus + Grafana)
 
 ### Subir os serviços
